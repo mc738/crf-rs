@@ -43,7 +43,7 @@ impl PackFile {
         // read the magic bytes
         file.read(&mut header_buffer).unwrap();
 
-        let magic_bytes = String::from_utf8(header_buffer.to_vec()).unwrap();
+        let magic_bytes = String::from_utf8(header_buffer[0..4].to_vec()).unwrap();
 
         let version = u32::from_le_bytes(header_buffer[4..8].try_into().unwrap());
 
