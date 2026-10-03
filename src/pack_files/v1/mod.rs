@@ -1,7 +1,7 @@
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::Read;
+use std::io::{BufReader, Read, Seek};
 use uuid::Uuid;
 
 pub struct PackFile {
@@ -11,7 +11,7 @@ pub struct PackFile {
 
 pub struct PackFileHeader {
     page_size: u32,
-    types: HashMap<SupportedAssetType, PackFileTypeIndex>,
+    pub types: HashMap<SupportedAssetType, PackFileTypeIndex>,
 }
 
 pub struct PackFileTypeIndex {
@@ -32,6 +32,7 @@ pub struct PackFileItemIndex {
 #[derive(Clone, Eq, PartialEq, Hash)]
 pub enum SupportedAssetType {
     Model,
+    Texture,
 }
 
 impl PackFile {
@@ -55,12 +56,20 @@ impl PackFile {
 
         let header_size = u32::from_le_bytes(header_buffer[16..20].try_into().unwrap());
 
-        let mut buffer = Vec::with_capacity(header_size as usize);
+        let p1 = file.stream_position().unwrap();
 
-        file.read_exact(&mut buffer).unwrap();
+        //let mut buffer = Vec::with_capacity(header_size as usize);
+        //let mut b = [ 0; 4096 - 20 ];
+
+        //let writeCount = file.read(&mut b).unwrap();
+
+        //let p2 = file.stream_position
+
+        let mut v = vec![0u8; header_size as usize];
+        file.read_exact(&mut v).unwrap();
 
         let header = PackFileHeader::deserialize(
-            serde_json::from_str(String::from_utf8(buffer).unwrap().as_str()).unwrap(),
+            serde_json::from_str::<serde_json::Value>(String::from_utf8(v).unwrap().as_str()).unwrap(),
         )
         .unwrap();
 
@@ -82,19 +91,27 @@ impl PackFileHeader {
             Value::Object(properties) => {
                 let mut types = HashMap::new();
 
-                for x in properties
-                    .get(stringify!("types"))
-                    .unwrap()
+                //for x in &properties {
+                //    println!("{:?}", x)
+                //}
+
+                let t = properties.get("types").unwrap();
+
+
+                for x in
+                    t
                     .as_array()
                     .unwrap()
                 {
+                    let l = x;
+                    println!("{:?}", l);
                     let type_index = PackFileTypeIndex::deserialize(x.clone()).unwrap();
                     types.insert(type_index.asset_type.clone(), type_index);
                 }
 
                 Ok(PackFileHeader {
                     page_size: properties
-                        .get(stringify!("pageSize"))
+                        .get("pageSize")
                         .unwrap()
                         .as_u64()
                         .unwrap() as u32,
@@ -122,10 +139,11 @@ impl PackFileTypeIndex {
                 }
 
                 Ok(PackFileTypeIndex {
-                    asset_type: SupportedAssetType::Model,
-                    page_offset: 0,
-                    page_count: 0,
-                    size: 0,
+                    // TODO fix this
+                    asset_type: SupportedAssetType::deserialize(typeProperties.get("type").unwrap()).unwrap(),
+                    page_offset: typeProperties.get("pageOffset").unwrap().as_u64().unwrap() as u32,
+                    page_count: typeProperties.get("pageCount").unwrap().as_u64().unwrap() as u32,
+                    size: typeProperties.get("size").unwrap().as_u64().unwrap(),
                     items,
                 })
             }
@@ -151,6 +169,26 @@ impl PackFileItemIndex {
                     .unwrap(),
                 length: itemProperties.get("length").unwrap().as_u64().unwrap() as u32,
             }),
+        }
+    }
+}
+
+
+impl SupportedAssetType {
+
+    pub fn deserialize(value: &Value) -> Result<SupportedAssetType, &'static str> {
+        match value {
+            Value::Null => Err("Null value provided for SupportedAssetType"),
+            Value::Bool(_) => Err("Boolean value provided for SupportedAssetType"),
+            Value::Number(_) => Err("Number value provided for SupportedAssetType"),
+            Value::String(v) =>
+                match v.as_str() {
+                    "model" => Ok(SupportedAssetType::Model),
+                    "texture" => Ok(SupportedAssetType::Texture),
+                    _ => Err("Unknown value provided for SupportedAssetType"),
+                }
+            Value::Array(_) => Err("Array value provided for SupportedAssetType"),
+            Value::Object(itemProperties) => Ok(SupportedAssetType::Model),
         }
     }
 }
